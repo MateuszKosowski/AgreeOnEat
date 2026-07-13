@@ -1,84 +1,87 @@
 # AgreeOnEat
 
-AgreeOnEat pomaga domownikom wspólnie wybrać posiłek. Obecnie repozytorium zawiera uruchamialny szkielet mikroserwisów: konfigurację, discovery, gateway, Keycloak oraz endpointy kontrolne `Hello`.
+AgreeOnEat helps household members choose meals together. The repository currently contains a runnable microservices skeleton: configuration, service discovery, an API gateway, Keycloak, and `Hello` endpoints.
 
-## Architektura
+## Architecture
 
-| Komponent | Odpowiedzialność |
+| Component | Responsibility |
 | --- | --- |
-| `config-server` | Pobiera konfigurację usług z osobnego repozytorium Git [`AgreeOnEat-Config`](https://github.com/MateuszKosowski/AgreeOnEat-Config). |
-| `discovery-server` | Eureka — rejestr działających instancji usług. |
-| `api-gateway` | Jedyny publiczny punkt wejścia do API; przekazuje żądania do usług przez Eurekę. |
-| `user-service` | Docelowo profil użytkownika: nazwa, alergeny, nielubiane składniki i ustawienia. Konta, hasła oraz tokeny należą do Keycloaka. |
-| `household-service` | Docelowo pokoje/domostwa, zaproszenia, role i członkostwa. |
-| `recipe-service` | Docelowo katalog przepisów, składniki, alergeny, makro, cena i czas przygotowania. |
-| `meal-planning-service` | Docelowo sesje wyboru posiłku, swipy, matche, eliminacja i plan tygodniowy. |
-| `keycloak` | Rejestracja, logowanie, JWT i w przyszłości Google OAuth. |
-| `keycloak-db` | PostgreSQL używany wyłącznie przez Keycloak. |
+| `config-server` | Loads service configuration from the separate Git repository [AgreeOnEat-Config](https://github.com/MateuszKosowski/AgreeOnEat-Config). |
+| `discovery-server` | Eureka service registry. |
+| `api-gateway` | The single public API entry point; routes requests to services through Eureka. |
+| `user-service` | Future user profile management: name, allergens, disliked ingredients, and settings. Accounts, passwords, and tokens belong to Keycloak. |
+| `household-service` | Future households/rooms, invitations, roles, and memberships. |
+| `recipe-service` | Future recipe catalogue, ingredients, allergens, nutrition, cost, and preparation time. |
+| `meal-planning-service` | Future meal-selection sessions, swipes, matches, elimination, and weekly planning. |
+| `keycloak` | Registration, login, JWT issuance, and future Google OAuth. |
+| `keycloak-db` | PostgreSQL database used only by Keycloak. |
 
-## Wymagania
+## Requirements
 
-- Docker Desktop z uruchomionym silnikiem Docker;
+- Docker Desktop with the Docker Engine running.
 
-## Uruchomienie lokalne
+## Local setup
 
-### 1. Uruchom Docker Desktop
+### 1. Start Docker Desktop
 
-Poczekaj, aż Docker Desktop uruchomi silnik Docker.
+Wait until Docker Desktop reports that the Docker Engine is running.
 
-### 2. Wygeneruj token GitHub
+### 2. Create a GitHub token
 
-Config Server pobiera konfigurację z prywatnego repozytorium `AgreeOnEat-Config`, dlatego potrzebuje tokenu GitHub tylko do odczytu:
+The Config Server reads the private `AgreeOnEat-Config` repository and needs a read-only GitHub token:
 
-1. W GitHub kliknij avatar w prawym górnym rogu, a następnie przejdź do `Settings` -> `Developer settings` -> `Personal access tokens` -> `Fine-grained tokens`.
-2. Wybierz `Generate new token`.
-3. W polu **Resource owner** wybierz swoje konto, a w polu **Repository access** wybierz `Only select repositories` i wskaż wyłącznie `AgreeOnEat-Config`.
-4. W sekcji **Repository permissions** ustaw `Contents` na `Read-only`.
-5. Wygeneruj token i od razu skopiuj jego wartość — GitHub pokaże ją tylko raz.
+1. In GitHub, open `Settings` → `Developer settings` → `Personal access tokens` → `Fine-grained tokens`.
+2. Select `Generate new token`.
+3. Under **Resource owner**, choose your account. Under **Repository access**, choose `Only select repositories` and select only `AgreeOnEat-Config`.
+4. Under **Repository permissions**, set `Contents` to `Read-only`.
+5. Generate and copy the token immediately. GitHub displays it only once.
 
-### 3. Przygotuj plik `.env`
+### 3. Prepare `.env`
 
-W PowerShell, w katalogu głównym projektu:
+From the repository root in PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-W `.env` podmień wartości na własne lokalne dane:
+Replace the placeholder values in `.env` with your local credentials:
 
 ```text
-KEYCLOAK_ADMIN_PASSWORD=twoje-lokalne-haslo
-KEYCLOAK_DB_PASSWORD=inne-lokalne-haslo
+KEYCLOAK_ADMIN_PASSWORD=your-local-password
+KEYCLOAK_DB_PASSWORD=another-local-password
+CONFIG_REPOSITORY_URI=https://github.com/MateuszKosowski/AgreeOnEat-Config.git
 CONFIG_REPOSITORY_USERNAME=MateuszKosowski
 CONFIG_REPOSITORY_TOKEN=github_pat_...
 ```
 
-### 4. Uruchom i sprawdź usługi
+Do not commit `.env` or share the token.
+
+### 4. Start the stack
 
 ```powershell
 docker compose up -d --build
 ```
 
-Jeżeli usługa wystartowała przed Config Serverem, Compose uruchomi ją ponownie. Po kilkunastu sekundach wszystkie usługi powinny pojawić się w Eurece.
+If a service starts before Config Server is ready, Docker Compose restarts it. After a few seconds, all services should appear in Eureka.
 
-## Adresy lokalne
+## Local addresses
 
-| Adres | Przeznaczenie |
+| Address | Purpose |
 | --- | --- |
 | [http://localhost:8080](http://localhost:8080) | API Gateway |
-| [http://localhost:8081](http://localhost:8081) | panel Keycloak |
-| [http://localhost:8761](http://localhost:8761) | panel Eureki |
+| [http://localhost:8081](http://localhost:8081) | Keycloak admin console |
+| [http://localhost:8761](http://localhost:8761) | Eureka dashboard |
 | [http://localhost:8888](http://localhost:8888) | Config Server |
 
-Panel Keycloak używa danych `KEYCLOAK_ADMIN` i `KEYCLOAK_ADMIN_PASSWORD` z pliku `.env`. Realm `agreeoneat` i klient mobilny `agreeoneat-mobile` są importowane przy pierwszym starcie.
+The Keycloak admin console uses `KEYCLOAK_ADMIN` and `KEYCLOAK_ADMIN_PASSWORD` from `.env`. The `agreeoneat` realm and `agreeoneat-mobile` client are imported on the first start.
 
-## Zatrzymanie i reset
+## Stop and reset
 
 ```powershell
 docker compose down
 ```
 
-Powyższe polecenie zachowuje wolumen PostgreSQL Keycloaka. Pełny reset danych lokalnych (w tym użytkowników Keycloaka) wykonasz przez:
+The command preserves the Keycloak PostgreSQL volume. To remove all local Keycloak data, including users:
 
 ```powershell
 docker compose down -v
