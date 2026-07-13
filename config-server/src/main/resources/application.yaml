@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: git
+  cloud:
+    config:
+      server:
+        git:
+          uri: ${CONFIG_REPOSITORY_URI:https://github.com/MateuszKosowski/AgreeOnEat-Config.git}
+          default-label: main
+          clone-on-start: true
+          username: ${CONFIG_REPOSITORY_USERNAME:}
+          password: ${CONFIG_REPOSITORY_TOKEN:}
+
+server:
+  port: 8888
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

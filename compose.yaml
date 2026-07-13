@@ -1,0 +1,150 @@
+services:
+  config-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: config-server
+    image: agreeoneat/config-server:local
+    container_name: agreeoneat-config-server
+    environment:
+      CONFIG_REPOSITORY_USERNAME: ${CONFIG_REPOSITORY_USERNAME}
+      CONFIG_REPOSITORY_TOKEN: ${CONFIG_REPOSITORY_TOKEN}
+    ports:
+      - "8888:8888"
+    restart: on-failure
+
+  discovery-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: discovery-server
+    image: agreeoneat/discovery-server:local
+    container_name: agreeoneat-discovery-server
+    environment: &spring-client-environment
+      CONFIG_SERVER_URL: http://config-server:8888
+      SPRING_CONFIG_IMPORT: configserver:http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+    depends_on:
+      - config-server
+    ports:
+      - "8761:8761"
+    restart: on-failure
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: api-gateway
+    image: agreeoneat/api-gateway:local
+    container_name: agreeoneat-api-gateway
+    environment:
+      <<: *spring-client-environment
+    depends_on:
+      - config-server
+      - discovery-server
+    ports:
+      - "8080:8080"
+    restart: on-failure
+
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: user-service
+    image: agreeoneat/user-service:local
+    container_name: agreeoneat-user-service
+    environment:
+      <<: *spring-client-environment
+    depends_on:
+      - config-server
+      - discovery-server
+    restart: on-failure
+
+  household-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: household-service
+    image: agreeoneat/household-service:local
+    container_name: agreeoneat-household-service
+    environment:
+      <<: *spring-client-environment
+    depends_on:
+      - config-server
+      - discovery-server
+    restart: on-failure
+
+  recipe-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: recipe-service
+    image: agreeoneat/recipe-service:local
+    container_name: agreeoneat-recipe-service
+    environment:
+      <<: *spring-client-environment
+    depends_on:
+      - config-server
+      - discovery-server
+    restart: on-failure
+
+  meal-planning-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: meal-planning-service
+    image: agreeoneat/meal-planning-service:local
+    container_name: agreeoneat-meal-planning-service
+    environment:
+      <<: *spring-client-environment
+    depends_on:
+      - config-server
+      - discovery-server
+    restart: on-failure
+
+  keycloak-db:
+    image: postgres:17-alpine
+    container_name: agreeoneat-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5.0
+    container_name: agreeoneat-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-agreeoneat.json:/opt/keycloak/data/import/realm-agreeoneat.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  keycloak-db-data:

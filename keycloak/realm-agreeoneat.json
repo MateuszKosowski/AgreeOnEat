@@ -1,0 +1,33 @@
+{
+  "realm": "agreeoneat",
+  "displayName": "AgreeOnEat",
+  "enabled": true,
+  "registrationAllowed": true,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "clients": [
+    {
+      "clientId": "agreeoneat-mobile",
+      "name": "AgreeOnEat mobile app",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:*",
+        "http://127.0.0.1:*",
+        "com.agreeoneat://*"
+      ],
+      "webOrigins": [
+        "http://localhost:*",
+        "http://127.0.0.1:*"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ]
+}

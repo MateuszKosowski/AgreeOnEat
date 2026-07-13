@@ -1,0 +1,7 @@
+.git
+.idea
+**/target
+data/source
+data/intermediate
+data/cache
+tools

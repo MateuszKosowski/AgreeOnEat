@@ -76,3 +76,4 @@ tools/
 /scripts/download-wikibooks-raw.sh
 /scripts/build-json-database.sh
 /scripts/create-polish-recipes.sh
+/scripts/normalize-ingredients-for-calculation.sh
