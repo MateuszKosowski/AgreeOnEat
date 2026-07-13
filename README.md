@@ -75,6 +75,15 @@ If a service starts before Config Server is ready, Docker Compose restarts it. A
 
 The Keycloak admin console uses `KEYCLOAK_ADMIN` and `KEYCLOAK_ADMIN_PASSWORD` from `.env`. The `agreeoneat` realm and `agreeoneat-mobile` client are imported on the first start.
 
+## Contribution workflow
+
+1. Create a GitHub Issue before starting work.
+2. Create a branch for the Issue and open a Pull Request targeting `main`.
+3. Add a closing reference to the PR description, for example `Closes #123`.
+4. Merge only after all CI checks pass and at least one reviewer approves the PR.
+
+Direct and force pushes to `main` are not allowed.
+
 ## Stop and reset
 
 ```powershell
