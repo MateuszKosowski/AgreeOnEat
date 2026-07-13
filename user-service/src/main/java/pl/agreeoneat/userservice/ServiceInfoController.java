@@ -14,4 +14,9 @@ public class ServiceInfoController {
 	Map<String, String> hello() {
 		return Map.of("service", "user-service", "status", "ok");
 	}
+
+	@GetMapping("/ping")
+	Map<String, String> ping() {
+		return Map.of("service", "user-service", "status", "UP");
+	}
 }
