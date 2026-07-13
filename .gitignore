@@ -1,0 +1,78 @@
+# Java / Gradle / Maven
+.gradle/
+build/
+out/
+target/
+*.class
+*.jar
+*.war
+*.ear
+!gradle/wrapper/gradle-wrapper.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+application-local.properties
+application-local.yml
+application-local.yaml
+application-secret.properties
+application-secret.yml
+application-secret.yaml
+*.pem
+*.key
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Operating system
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Downloaded source data, reproducible intermediates and caches
+data/source/
+data/intermediate/
+data/cache/
+
+# Keep only the final JSON database; the remaining ready files are generated
+data/ready/*
+!data/ready/dinnertinder-database.json
+
+# Locally bundled utilities; install jq/curl through the system when possible
+tools/
+
+# Local Codex metadata
+.codex/
+/docs/koncepcja.md
+/docs/wikibooks-recipes-pl-structure.md
+/docs/wikibooks-recipes-structure.md
+/docs/wikibooks-recipes-pl-calculable-structure.md
+/scripts/lib/build-json-database.jq
+/scripts/lib/wikibooks-pl.jq
+/scripts/validate-calculable-recipes.sh
+/scripts/lib/validate-calculable.jq
+/scripts/postgres-ingredients-schema.sql
+/scripts/lib/ingredient-concepts-pl.jq
+/scripts/filter-wikibooks-local.sh
+/scripts/download-wikibooks-recipes.sh
+/scripts/download-wikibooks-raw.sh
+/scripts/build-json-database.sh
+/scripts/create-polish-recipes.sh
