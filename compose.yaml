@@ -8,6 +8,7 @@ services:
     image: agreeoneat/config-server:local
     container_name: agreeoneat-config-server
     environment:
+      CONFIG_REPOSITORY_URI: ${CONFIG_REPOSITORY_URI}
       CONFIG_REPOSITORY_USERNAME: ${CONFIG_REPOSITORY_USERNAME}
       CONFIG_REPOSITORY_TOKEN: ${CONFIG_REPOSITORY_TOKEN}
     ports:

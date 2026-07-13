@@ -7,7 +7,7 @@ spring:
     config:
       server:
         git:
-          uri: ${CONFIG_REPOSITORY_URI:https://github.com/MateuszKosowski/AgreeOnEat-Config.git}
+          uri: ${CONFIG_REPOSITORY_URI}
           default-label: main
           clone-on-start: true
           username: ${CONFIG_REPOSITORY_USERNAME:}

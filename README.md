@@ -83,9 +83,3 @@ Powyższe polecenie zachowuje wolumen PostgreSQL Keycloaka. Pełny reset danych 
 ```powershell
 docker compose down -v
 ```
-
-## Konfiguracja usług
-
-Każdy klient Config Servera ma lokalnie tylko nazwę aplikacji i adres Config Servera. Właściwe porty, adres Eureki i trasy gatewaya są w osobnym repozytorium [`AgreeOnEat-Config`](https://github.com/MateuszKosowski/AgreeOnEat-Config), z gałęzi `main`.
-
-Config Server domyślnie pobiera repozytorium z GitHuba. Aby w przyszłości zmienić jego adres, ustaw zmienną środowiskową `CONFIG_REPOSITORY_URI`. W Dockerze adresy między kontenerami są przekazywane przez zmienne środowiskowe. Poza Dockerem Config Server jest dostępny pod `http://localhost:8888`, a Eureka pod `http://localhost:8761/eureka/`.
