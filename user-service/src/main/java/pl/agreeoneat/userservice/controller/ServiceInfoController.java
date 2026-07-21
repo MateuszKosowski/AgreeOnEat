@@ -1,4 +1,4 @@
-package pl.agreeoneat.userservice;
+package pl.agreeoneat.userservice.controller;
 
 import java.util.Map;
 

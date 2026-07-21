@@ -20,7 +20,7 @@ jobs:
       - name: Require a closing issue reference
         run: |
           shopt -s nocasematch
-          if [[ "$PR_BODY" =~ (close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]+\#[0-9]+ ]]; then
+          if [[ "$PR_BODY" =~ (close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]*:?[[:space:]]+(\#[0-9]+|https://github\.com/[^/]+/[^/]+/issues/[0-9]+) ]]; then
             exit 0
           fi
 

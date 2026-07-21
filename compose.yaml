@@ -60,9 +60,14 @@ services:
     container_name: agreeoneat-user-service
     environment:
       <<: *spring-client-environment
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8081/realms/agreeoneat}
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: ${KEYCLOAK_JWK_SET_URI:-http://keycloak:8080/realms/agreeoneat/protocol/openid-connect/certs}
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_AUDIENCES: ${KEYCLOAK_AUDIENCE:-agreeoneat-api}
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWS_ALGORITHMS: RS256
     depends_on:
       - config-server
       - discovery-server
+      - keycloak
     restart: on-failure
 
   household-service:
