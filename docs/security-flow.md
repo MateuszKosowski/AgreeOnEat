@@ -1,5 +1,7 @@
 # Przepływy uwierzytelniania i autoryzacji w AgreeOnEat
 
+Póki co dokument jest tworzony po polsku aby łatwiej było mi zebrać wszystkie szczegóły. W przyszłości może zostać przetłumaczona na angielski.
+
 ## Słownik pojęć
 
 ### Realm
@@ -155,3 +157,107 @@ Jeżeli wartości są takie same, frontend wie, że callback odpowiada próbie l
 Jeżeli `state` nie istnieje albo wartości są różne, biblioteka przerywa proces. Authorization code nie może zostać wysłany do endpointu tokenów, ponieważ callback może pochodzić z obcej lub wcześniej rozpoczętej operacji logowania.
 
 `state` nie potwierdza jeszcze poprawności authorization code ani tożsamości użytkownika. Jego zadaniem jest powiązanie powrotu z przeglądarki z właściwą operacją logowania.
+
+### 12. Wysłanie authorization code i `code_verifier` do Keycloak
+
+Po poprawnym sprawdzeniu `state` biblioteka OIDC wysyła bezpośrednio z frontendu żądanie `POST` do endpointu tokenów Keycloak. Lokalnie jest to adres:
+
+```text
+http://localhost:8081/realms/agreeoneat/protocol/openid-connect/token
+```
+
+Żądanie używa formatu `application/x-www-form-urlencoded` i zawiera:
+
+```http
+POST /realms/agreeoneat/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&client_id=agreeoneat-mobile
+&code=<authorization_code>
+&redirect_uri=com.agreeoneat://oauth/callback
+&code_verifier=<wartość_wygenerowana_w_kroku_2>
+```
+
+| Parametr | Znaczenie |
+| --- | --- |
+| `grant_type=authorization_code` | Informuje Keycloak, że frontend chce wymienić authorization code na tokeny. |
+| `client_id=agreeoneat-mobile` | Identyfikuje klienta mobilnego, który rozpoczął logowanie. |
+| `code` | Jest jednorazowym authorization code otrzymanym w callbacku. |
+| `redirect_uri` | Musi być taki sam jak adres użyty podczas rozpoczęcia logowania. |
+| `code_verifier` | Jest pierwotną, tajną wartością PKCE zachowaną przez frontend od kroku 2. |
+
+Żądanie nie jest już wysyłane przez systemową przeglądarkę. Wykonuje je biblioteka OIDC działająca w aplikacji.
+
+W tym momencie `code_verifier` po raz pierwszy trafia do Keycloak. Wartości `state` nie trzeba ponownie wysyłać, ponieważ została już sprawdzona lokalnie przez frontend.
+
+#### Po co aż tyle kroków zamiast zwykłego logowania?
+
+Prostszy wariant polegałby na przekazaniu e-maila i hasła do frontendu, a następnie wysłaniu ich bezpośrednio po tokeny. Oznaczałoby to jednak, że aplikacja musiałaby obsługiwać hasło użytkownika i samodzielnie brać udział w procesie uwierzytelniania. W zastosowanym przepływie hasło otrzymuje wyłącznie Keycloak, a frontend operuje jednorazowymi wartościami.
+
+Każdy z pozornie nadmiarowych elementów chroni inny fragment procesu:
+
+| Element | Dlaczego jest potrzebny? |
+| --- | --- |
+| Systemowa przeglądarka | Oddziela formularz logowania od kodu aplikacji i przekazuje hasło bezpośrednio do Keycloak. |
+| `state` | Chroni przed zaakceptowaniem callbacku pochodzącego z innej operacji logowania. |
+| Authorization code | Sprawia, że tokeny nie są przesyłane w adresie callback; kod jest krótkotrwały i jednorazowy. |
+| `code_verifier` i PKCE | Powodują, że przechwycony authorization code jest bezużyteczny bez sekretu pozostałego na urządzeniu. |
+| `nonce` | Pozwala później sprawdzić, czy ID token należy do tej konkretnej próby logowania. |
+
+Dla użytkownika nadal wygląda to jak zwykłe logowanie: wybiera przycisk, podaje dane i wraca do aplikacji. Większość opisanych kroków wykonuje automatycznie biblioteka OIDC. HTTPS zabezpiecza samą transmisję, natomiast opisane mechanizmy chronią również przed użyciem przechwyconych lub podstawionych elementów procesu.
+
+### 13. Weryfikacja authorization code i PKCE przez Keycloak
+
+Po otrzymaniu żądania do endpointu `/token` Keycloak sprawdza, czy wszystkie jego elementy należą do tej samej, prawidłowo rozpoczętej operacji logowania.
+
+Keycloak kontroluje między innymi:
+
+| Kontrola | Co jest sprawdzane? |
+| --- | --- |
+| Authorization code | Czy kod został wystawiony przez Keycloak, nie wygasł i nie został wcześniej wykorzystany. |
+| Klient | Czy kod został wystawiony dla klienta `agreeoneat-mobile`, który teraz próbuje go wymienić. |
+| `redirect_uri` | Czy jest dokładnie taki sam jak adres przesłany podczas rozpoczęcia logowania. |
+| PKCE | Czy otrzymany `code_verifier` odpowiada `code_challenge` zapisanemu przez Keycloak w kroku 5. |
+
+Weryfikacja PKCE polega na ponownym wykonaniu przez Keycloak tego samego obliczenia, które wcześniej wykonał frontend:
+
+```text
+BASE64URL(SHA-256(otrzymany_code_verifier))
+    ==
+code_challenge zapisany przy rozpoczęciu logowania
+```
+
+Frontend nie przesyła więc wcześniej utworzonego `code_challenge` po raz drugi. Keycloak sam wylicza go z otrzymanego `code_verifier` i porównuje z wartością zapamiętaną przy wydawaniu authorization code. Zgodność stanowi dowód, że kod wymienia ta sama aplikacja, która rozpoczęła logowanie i zachowała jednorazowy sekret.
+
+Jeżeli którakolwiek kontrola się nie powiedzie, Keycloak odrzuca żądanie i nie wydaje tokenów. Po prawidłowej wymianie authorization code zostaje zużyty, dlatego nie można wykorzystać go ponownie. Jeśli wszystkie dane są poprawne, Keycloak może przejść do utworzenia i podpisania tokenów.
+
+### 14. Utworzenie i zwrócenie tokenów do frontendu
+
+Po pomyślnej weryfikacji Keycloak zwraca bibliotece OIDC odpowiedź zawierającą trzy różne tokeny. W uproszczeniu wygląda ona następująco:
+
+```json
+{
+  "access_token": "<access_token>",
+  "id_token": "<id_token>",
+  "refresh_token": "<refresh_token>",
+  "token_type": "Bearer",
+  "expires_in": 1200
+}
+```
+
+Każdy token ma inne przeznaczenie:
+
+| Token | Do czego służy? |
+| --- | --- |
+| Access token | Jest poświadczeniem dostępu do backendu. Frontend będzie dołączał go jako `Authorization: Bearer <access_token>` do żądań wysyłanych przez API Gateway. W konfiguracji AgreeOnEat jest ważny przez 1200 sekund, czyli 20 minut. |
+| ID token | Potwierdza wynik logowania i opisuje tożsamość użytkownika. Zawiera między innymi `sub` oraz `nonce`. Jest przeznaczony dla frontendu i nie służy do wywoływania API. |
+| Refresh token | Pozwala bibliotece OIDC uzyskać nowe tokeny bez ponownego wpisywania hasła. Jest szczególnie wrażliwy, ponieważ umożliwia przedłużanie zalogowanej sesji. |
+
+Access token i ID token są tokenami JWT podpisanymi przez Keycloak algorytmem `RS256`. Keycloak używa do podpisu prywatnego klucza RSA należącego do realmu `agreeoneat`, a odpowiadający mu klucz publiczny udostępnia do weryfikacji. Podpis zapewnia autentyczność i integralność tokenu, ale nie szyfruje jego zawartości — danych zapisanych w JWT nie należy traktować jako tajnych.
+
+Po otrzymaniu odpowiedzi biblioteka OIDC sprawdza ID token, w tym jego podpis, wystawcę, odbiorcę, termin ważności oraz `nonce`. Otrzymany `nonce` musi być równy wartości zapisanej przez frontend w kroku 2. Niezgodność oznacza, że ID token nie należy do bieżącej operacji logowania i cała odpowiedź musi zostać odrzucona.
+
+Refresh token powinien być przechowywany w bezpiecznym magazynie systemowym urządzenia, na przykład Android Keystore. Nie powinien trafiać do zwykłego `AsyncStorage` ani do logów. Aktualna konfiguracja pozwala utrzymać sesję przez 7 dni bezczynności, jednak nie dłużej niż 30 dni łącznie. Przy odnowieniu Keycloak wydaje nowy refresh token, a poprzedni przestaje być ważny.
+
+Po zakończeniu tych kontroli frontend może uznać użytkownika za zalogowanego. Od tej chwili do komunikacji z backendem będzie używał access tokenu, a nie ID tokenu ani refresh tokenu.
