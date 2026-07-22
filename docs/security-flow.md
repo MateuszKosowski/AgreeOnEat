@@ -467,3 +467,59 @@ Strzałka Gateway → Eureka na diagramie przedstawia logiczne wyszukanie usług
  Jeśli w rejestrze nie ma żadnej dostępnej instancji `user-service`, Gateway nie ma dokąd przekazać żądania i powinien zakończyć je błędem `503 Service Unavailable`.
 
 W konfiguracji tras nie ma filtra usuwającego fragment ścieżki, dlatego oryginalne `/api/users/me` pozostaje bez zmian.
+
+### 21. Zwrócenie adresu instancji mikroserwisu
+
+Eureka udostępnia Gateway informacje o instancjach zarejestrowanych pod nazwą `user-service`. W uproszczeniu wpis takiej instancji zawiera:
+
+```text
+serviceId: user-service
+status: UP
+host: <wewnętrzny adres instancji>
+port: 8082
+```
+
+`serviceId` musi odpowiadać nazwie użytej w `lb://user-service`. Status `UP` informuje, że instancja jest zarejestrowana jako dostępna, natomiast `host` i `port` pozwalają nawiązać z nią połączenie.
+
+W obecnej konfiguracji mikroserwisy używają:
+
+```yaml
+eureka:
+  instance:
+    prefer-ip-address: true
+```
+
+Oznacza to, że instancja preferuje zarejestrowanie swojego adresu IP zamiast nazwy hosta. W Dockerze jest to adres osiągalny wewnątrz sieci kontenerów. Nie wpisujemy go na stałe do konfiguracji Gateway, ponieważ może zmienić się po ponownym uruchomieniu kontenera.
+
+Jeżeli Eureka zna kilka instancji `user-service`, Spring Cloud LoadBalancer wybiera jedną z nich. Wynikiem tego kroku jest rozwiązanie logicznego adresu:
+
+```text
+lb://user-service
+```
+
+do rzeczywistego adresu podobnego do:
+
+```text
+http://<wewnętrzny-adres-instancji>:8082
+```
+
+Na diagramie Eureka odsyła te dane bezpośrednio do Gateway. W działającej aplikacji mogą one pochodzić z lokalnej kopii rejestru okresowo synchronizowanej przez klienta Eureka, ale rezultat jest ten sam: Gateway otrzymuje adres wybranej instancji.
+
+### 22. Przekazanie żądania i access tokenu do mikroserwisu
+
+Po wybraniu instancji Gateway działa jak reverse proxy: tworzy połączenie z wewnętrznym adresem `user-service` i przekazuje do niego żądanie użytkownika.
+Gateway zmienia adres sieciowy odbiorcy, ale zachowuje elementy potrzebne mikroserwisowi do obsłużenia operacji:
+
+| Element | Zachowanie Gateway |
+| --- | --- |
+| Metoda HTTP | Pozostaje bez zmian, na przykład `GET`. |
+| Ścieżka | Pozostaje `/api/users/me`, ponieważ nie skonfigurowano filtra przepisującego lub skracającego ścieżkę. |
+| Parametry zapytania | Są przekazywane dalej. |
+| Body | Dla metod posiadających treść, na przykład `POST`, jest przesyłane do mikroserwisu. |
+| Nagłówek `Authorization` | Jest przekazywany z tym samym access tokenem użytkownika. |
+
+Mikroserwis otrzymuje oryginalny, kryptograficznie podpisany access token Keycloak. Po jego zweryfikowaniu będzie mógł samodzielnie odczytać między innymi `sub`, scope’y i role.
+
+Ponowna weryfikacja w mikroserwisie jest celowa. Gateway chroni wejście do systemu, ale mikroserwis nie powinien zakładać, że każde żądanie z sieci wewnętrznej na pewno przeszło przez Gateway. Żądanie może pochodzić z innego kontenera, błędnie skonfigurowanej trasy albo w przyszłości z komunikacji S2S. Mikroserwis stanowi więc drugą granicę bezpieczeństwa i sam sprawdza poświadczenie, na podstawie którego wykonuje logikę biznesową.
+
+W aktualnym Docker Compose port `user-service` nie jest publikowany na komputerze gospodarza, podczas gdy port `8080` API Gateway jest publicznie mapowany. Ogranicza to możliwość ominięcia Gateway z zewnątrz, ale inne elementy wewnętrznej sieci kontenerów nadal mogą dotrzeć do mikroserwisu. Ochrona sieciowa i weryfikacja JWT uzupełniają się, zamiast wzajemnie zastępować.
