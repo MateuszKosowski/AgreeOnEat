@@ -1,75 +1,221 @@
-# Konfiguracja bezpieczeństwa Keycloak
+# Konfiguracja Keycloak w AgreeOnEat
 
-Ten dokument opisuje uzgodnioną lokalną konfigurację Keycloak dla AgreeOnEat. Wersjonowanym źródłem konfiguracji jest plik [`keycloak/realm-agreeoneat.json`](../keycloak/realm-agreeoneat.json).
+Ten dokument opisuje wyłącznie aktualną, wersjonowaną konfigurację Keycloak używaną lokalnie przez AgreeOnEat. Pełny przebieg logowania, wystawiania tokenów, wywołania API Gateway i walidacji JWT w mikroserwisach znajduje się w [`security-flow.md`](security-flow.md).
 
 ## Podstawowe pojęcia
 
-- **Keycloak** jest dostawcą tożsamości. Rejestruje użytkowników, sprawdza ich dane logowania i wystawia tokeny. Usługi AgreeOnEat nie mogą otrzymywać, haszować ani przechowywać haseł użytkowników.
-- **Realm** to odizolowana przestrzeń bezpieczeństwa z własnymi użytkownikami, rolami, klientami i ustawieniami logowania. AgreeOnEat używa realmu `agreeoneat`. Specjalny realm `master` służy wyłącznie do administrowania Keycloak.
-- **Klient OpenID Connect** reprezentuje aplikację rozpoczynającą logowanie. `agreeoneat-mobile` reprezentuje przyszłą aplikację React Native publikowaną w Google Play.
-- **Audience** określa API, dla którego wystawiono access token. API AgreeOnEat używa wartości `agreeoneat-api`.
-- **Client scope** jest zestawem ustawień tokenu i mapperów protokołu. Domyślne scope’y `basic`, `profile` i `email` dodają odpowiednio identyfikator `sub`, podstawowe dane profilu i adres e-mail. Scope `agreeoneat-api` dodaje audience API do access tokenów aplikacji mobilnej, a jawnie zdefiniowany scope `roles` mapuje role realmu do `realm_access.roles`.
+- **Keycloak** jest systemem odpowiedzialnym za rejestrację, logowanie, przechowywanie hashy haseł, utrzymywanie sesji i wystawianie tokenów. Mikroserwisy AgreeOnEat nie otrzymują haseł użytkowników.
+- **Realm** jest odizolowaną przestrzenią Keycloak posiadającą własnych użytkowników, klientów, role, sesje i ustawienia logowania. AgreeOnEat korzysta z realmu `agreeoneat`; realm `master` służy do administrowania serwerem Keycloak.
+- **Klient OpenID Connect** reprezentuje aplikację, która rozpoczyna logowanie. Klient `agreeoneat-mobile` reprezentuje aplikację mobilną oraz Postmana używanego do lokalnych testów.
+- **`client_id`** jest publicznym identyfikatorem klienta. Można go porównać do loginu aplikacji w Keycloak. W AgreeOnEat ma wartość `agreeoneat-mobile`.
+- **`client_secret`** jest poufnym poświadczeniem klienta, podobnym do hasła aplikacji. Klient mobilny go nie posiada, ponieważ sekret zapisany w aplikacji instalowanej na urządzeniu można odczytać.
+- **Klient publiczny** to klient bez `client_secret`. Do zabezpieczenia Authorization Code Flow wykorzystuje PKCE.
+- **PKCE** wiąże authorization code z urządzeniem, które rozpoczęło logowanie. Dzięki temu sam przechwycony authorization code nie wystarcza do uzyskania tokenów.
+- **Redirect URI** jest dokładnym adresem, pod który Keycloak może odesłać przeglądarkę po zakończeniu logowania. Musi zgadzać się z jednym z adresów zapisanych w konfiguracji klienta.
+- **Client scope** w Keycloak jest zestawem mapperów i ustawień określających zawartość tokenu. Nie musi oznaczać biznesowej permisji.
+- **Mapper protokołu** pobiera określoną informację z Keycloak i umieszcza ją w wybranym claimie tokenu, na przykład adres e-mail w `email` albo role w `realm_access.roles`.
+- **Claim** jest pojedynczym polem wewnątrz tokenu, na przykład `sub`, `iss`, `aud` albo `exp`.
+- **Audience (`aud`)** wskazuje API, dla którego wystawiono access token. Token AgreeOnEat przeznaczony dla backendu zawiera `agreeoneat-api`.
+- **Rola realmu** opisuje ogólne uprawnienie użytkownika w danym realmie. Aktualna konfiguracja definiuje rolę `USER`.
+- **Access token** jest przekazywany do API jako Bearer token. **ID token** opisuje wynik logowania i tożsamość użytkownika, natomiast **refresh token** służy do uzyskania kolejnego zestawu tokenów.
+- **JWKS** jest publicznym zestawem kluczy Keycloak. API Gateway i mikroserwisy używają go do sprawdzania podpisów JWT; JWKS nie zawiera klucza prywatnego.
 
-## Lokalne komponenty i adresy
+## Źródło konfiguracji
 
-| Komponent | Adres lub identyfikator |
-| --- | --- |
-| Keycloak Admin Console | `http://localhost:8081/admin` |
-| Realm | `agreeoneat` |
-| OIDC Discovery | `http://localhost:8081/realms/agreeoneat/.well-known/openid-configuration` |
-| Identyfikator klienta mobilnego | `agreeoneat-mobile` |
-| Audience API | `agreeoneat-api` |
-| Callback aplikacji mobilnej | `com.agreeoneat://oauth/callback` |
-| Callback Postmana (tylko lokalne testy) | `https://oauth.pstmn.io/v1/callback` |
+Źródłem prawdy dla realmu jest [`keycloak/realm-agreeoneat.json`](../keycloak/realm-agreeoneat.json). Plik zawiera ustawienia realmu, klienta OIDC, scope’ów, mapperów, ról, tokenów, sesji i haseł.
 
-Dokument OIDC Discovery publikuje między innymi endpoint autoryzacji, endpoint tokenów oraz endpoint JWKS. Backend używa publicznych kluczy z JWKS do weryfikacji podpisu JWT. Prywatne klucze są generowane i przechowywane przez Keycloak i nie mogą zostać zapisane w repozytorium.
+Docker Compose:
 
-## Źródła konfiguracji
+- montuje plik do `/opt/keycloak/data/import/realm-agreeoneat.json` w trybie tylko do odczytu;
+- uruchamia Keycloak poleceniem `start-dev --import-realm`;
+- przechowuje bieżący stan Keycloak w PostgreSQL na wolumenie `keycloak-db-data`;
+- nie publikuje portu PostgreSQL poza sieć Compose.
 
-- `keycloak/realm-agreeoneat.json` jest odtwarzalną konfiguracją samego realmu: klienta, scope’ów, mapperów, ról, czasów sesji i zasad logowania.
-- `AgreeOnEat-Config/user-service.yaml` jest centralną konfiguracją Spring Security Resource Server: issuer, JWKS, audience i dozwolony algorytm podpisu.
-- `user-service/src/main/resources/application.yaml` zawiera tylko konfigurację startową potrzebną do odnalezienia Config Servera.
-- `compose.yaml` przekazuje nadpisywalne zmienne środowiskowe dla lokalnej sieci kontenerów. `issuer-uri` pozostaje adresem widocznym w claimie `iss`, czyli `http://localhost:8081/realms/agreeoneat`, natomiast `jwk-set-uri` wskazuje z kontenera bezpośrednio na `http://keycloak:8080/.../certs`.
+Import tworzy realm tylko wtedy, gdy jeszcze nie istnieje. Zmiany wykonane w Admin Console są zapisywane w PostgreSQL i nie aktualizują automatycznie pliku JSON. Ponowne odtworzenie realmu z pliku wymaga pustej bazy Keycloak; usunięcie jej wolumenu usuwa również wszystkich lokalnych użytkowników.
 
-Rozdzielenie issuer i JWKS jest celowe: backend porównuje issuer dokładnie z wartością zapisaną w tokenie, ale publiczne klucze pobiera wewnątrz sieci Dockera. Żaden z tych adresów nie jest sekretem. Wartości można nadpisać przez `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWK_SET_URI` i `KEYCLOAK_AUDIENCE`.
+Hasła administratora i bazy Keycloak pochodzą z ignorowanego pliku `.env` przez `KEYCLOAK_ADMIN_PASSWORD` i `KEYCLOAK_DB_PASSWORD`. Nie są częścią pliku realmu. W JSON-ie nie mogą znaleźć się również użytkownicy, hasła, hashe haseł, tokeny, sekrety klientów ani prywatne klucze.
 
-## Klient OpenID Connect aplikacji mobilnej
+## Realm
 
-`agreeoneat-mobile` jest klientem publicznym, ponieważ nie można bezpiecznie ukryć współdzielonego sekretu w pliku APK. Klient używa Authorization Code Flow z PKCE:
+Realm jest odizolowaną przestrzenią Keycloak posiadającą własnych użytkowników, klientów, role, sesje i zasady logowania.
 
 | Ustawienie | Wartość |
 | --- | --- |
+| Techniczna nazwa realmu | `agreeoneat` |
+| Nazwa wyświetlana | `AgreeOnEat` |
+| Realm aktywny | tak |
+| Algorytm podpisu tokenów | `RS256` |
+| Samodzielna rejestracja | włączona |
+| E-mail jako username | włączony |
+| Logowanie e-mailem | włączone |
+| Duplikaty adresów e-mail | zabronione |
+| Edycja username | wyłączona |
+| Weryfikacja e-maila | wyłączona |
+| Reset hasła przez e-mail | wyłączony |
+| Remember Me | wyłączone |
+| Ochrona brute-force | niewłączona w wersjonowanej konfiguracji |
+
+Realm `master` nie przechowuje użytkowników AgreeOnEat. Służy do administrowania samym serwerem Keycloak.
+
+## Lokalne adresy
+
+| Element | Adres |
+| --- | --- |
+| Admin Console | `http://localhost:8081/admin` |
+| OIDC Discovery | `http://localhost:8081/realms/agreeoneat/.well-known/openid-configuration` |
+| Authorization endpoint | `http://localhost:8081/realms/agreeoneat/protocol/openid-connect/auth` |
+| Token endpoint | `http://localhost:8081/realms/agreeoneat/protocol/openid-connect/token` |
+| UserInfo endpoint | `http://localhost:8081/realms/agreeoneat/protocol/openid-connect/userinfo` |
+| JWKS endpoint | `http://localhost:8081/realms/agreeoneat/protocol/openid-connect/certs` |
+
+OIDC Discovery publikuje adresy endpointów i obsługiwane możliwości protokołu. JWKS udostępnia publiczne klucze potrzebne do sprawdzania podpisów tokenów. Prywatny klucz pozostaje w Keycloak.
+
+## Klient `agreeoneat-mobile`
+
+Klient reprezentuje aplikację mobilną AgreeOnEat i Postmana używanego do lokalnych testów. Jest klientem publicznym, ponieważ aplikacja instalowana na urządzeniu nie może bezpiecznie przechowywać współdzielonego `client_secret`.
+
+| Ustawienie | Wartość |
+| --- | --- |
+| Client ID | `agreeoneat-mobile` |
 | Protokół | OpenID Connect |
 | Client authentication | wyłączone |
+| Public client | tak |
 | Standard Flow | włączony |
-| Metoda PKCE | `S256` |
-| Direct Access Grants | wyłączone |
+| PKCE | wymagane `S256` |
 | Implicit Flow | wyłączony |
+| Direct Access Grants | wyłączone |
 | Service Accounts | wyłączone |
 | Device Authorization Grant | wyłączony |
 | CIBA Grant | wyłączony |
-| Redirect URIs | `com.agreeoneat://oauth/callback`, `https://oauth.pstmn.io/v1/callback` |
-| Post-logout redirect URI | `com.agreeoneat://oauth/callback` |
+| Full Scope Allowed | wyłączone |
 | Web origins | brak |
 
-Callback `com.agreeoneat://oauth/callback` jest własnym schematem URI aplikacji mobilnej, a nie domeną internetową. Konfiguracja deep linków i biblioteki OIDC w React Native musi używać dokładnie tego samego URI. Drugi, dokładny callback jest przeznaczony dla Postmana i pozwala zespołowi testować lokalny Authorization Code Flow bez gotowej aplikacji. Nie należy kopiować callbacku Postmana do konfiguracji środowiska produkcyjnego. Wildcardy nie mogą pozostać w wersjonowanej konfiguracji.
+PKCE wiąże authorization code z jednorazowym `code_verifier` utworzonym przez klienta. Szczegółowy przebieg tego mechanizmu jest opisany w [`security-flow.md`](security-flow.md).
 
-## Logowanie z PKCE
+### Redirect URI
 
-1. Aplikacja mobilna generuje nowy, kryptograficznie losowy `code_verifier` dla danej próby logowania.
-2. Oblicza `code_challenge = BASE64URL(SHA256(code_verifier))`.
-3. Otwiera systemową przeglądarkę na endpoincie autoryzacji Keycloak i przesyła challenge z metodą `S256`.
-4. Keycloak wyświetla rejestrację lub logowanie i uwierzytelnia użytkownika. Aplikacja mobilna nigdy nie otrzymuje hasła.
-5. Keycloak przekierowuje przeglądarkę do `com.agreeoneat://oauth/callback` z krótkotrwałym, jednorazowym authorization code.
-6. Aplikacja wymienia kod i pierwotny verifier na endpoincie tokenów.
-7. Keycloak porównuje verifier z wcześniejszym challenge. Nieprawidłowy lub brakujący verifier zostaje odrzucony.
-8. Poprawna wymiana zwraca access token, ID token i refresh token.
+Dozwolone są dokładnie dwa callbacki:
 
-PKCE chroni przechwycony authorization code. Biblioteka OIDC aplikacji mobilnej powinna również generować i weryfikować parametry `state` oraz `nonce`.
+| Zastosowanie | Redirect URI |
+| --- | --- |
+| Aplikacja mobilna | `com.agreeoneat://oauth/callback` |
+| Lokalny test w Postmanie | `https://oauth.pstmn.io/v1/callback` |
 
-## Lokalny test w Postmanie
+Post-logout redirect URI jest ustawiony wyłącznie na:
 
-W kolekcji Postmana ustaw `Authorization` na `OAuth 2.0`, wyłącz `Share Token` i skonfiguruj nowy token:
+```text
+com.agreeoneat://oauth/callback
+```
+
+`com.agreeoneat://` jest własnym schematem URI obsługiwanym przez aplikację mobilną, a nie domeną internetową. Konfiguracja nie zawiera wildcardów.
+
+## Client scopes i mappery
+
+Klient ma następujące domyślne client scope’y:
+
+```text
+basic
+profile
+email
+roles
+agreeoneat-api
+```
+
+Nie ma optional client scope’ów. Każdy z obecnych scope’ów konfiguruje zawartość tokenów:
+
+| Client scope | Mappery i wynik |
+| --- | --- |
+| `basic` | Dodaje `sub` do access tokenu oraz `auth_time` do access tokenu i ID tokenu. |
+| `profile` | Dodaje `preferred_username`, `given_name`, `family_name` i `name` do access tokenu, ID tokenu oraz UserInfo. |
+| `email` | Dodaje `email` i `email_verified` do access tokenu, ID tokenu oraz UserInfo. |
+| `roles` | Dodaje role realmu do `realm_access.roles` w access tokenie. |
+| `agreeoneat-api` | Dodaje `agreeoneat-api` do claima `aud` w access tokenie. |
+
+Client scope w Keycloak jest pakietem mapperów definiujących zawartość tokenu. Nie oznacza automatycznie biznesowej permisji o tej samej nazwie.
+
+## Rola `USER`
+
+Realm definiuje jedną rolę aplikacyjną:
+
+```text
+USER
+```
+
+`USER` znajduje się w `defaultRoles`, dlatego otrzymuje ją każdy nowo utworzony użytkownik. `scopeMappings` klienta `agreeoneat-mobile` dopuszcza tę rolę, a wyłączone `Full Scope Allowed` zapobiega automatycznemu przekazywaniu wszystkich ról realmu.
+
+Mapper client scope’u `roles` umieszcza rolę w access tokenie:
+
+```json
+{
+  "realm_access": {
+    "roles": ["USER"]
+  }
+}
+```
+
+Role związane z konkretnymi danymi biznesowymi, na przykład członkostwem w gospodarstwie, nie są rolami realmu Keycloak.
+
+## Tokeny i sesje
+
+| Ustawienie | Wartość |
+| --- | --- |
+| Algorytm podpisu | `RS256` |
+| Ważność access tokenu | 1200 sekund, czyli 20 minut |
+| SSO Session Idle | 604800 sekund, czyli 7 dni |
+| SSO Session Max | 2592000 sekund, czyli 30 dni |
+| Rotacja refresh tokenów | włączona |
+| Refresh Token Max Reuse | `0` |
+| Offline access | nieprzypisany do klienta |
+
+Wygaśnięcie access tokenu nie kończy automatycznie sesji SSO. Możliwość używania refresh tokenu ograniczają czasy `SSO Session Idle` i `SSO Session Max`. Przy odświeżeniu Keycloak zwraca nowy refresh token i unieważnia poprzedni.
+
+Konfiguracja wystawia trzy rodzaje tokenów:
+
+- access token przeznaczony dla API AgreeOnEat;
+- ID token opisujący wynik logowania i tożsamość użytkownika;
+- refresh token używany wyłącznie na token endpoincie Keycloak.
+
+Oczekiwane najważniejsze claimy access tokenu:
+
+```json
+{
+  "iss": "http://localhost:8081/realms/agreeoneat",
+  "sub": "stabilny-identyfikator-uzytkownika",
+  "azp": "agreeoneat-mobile",
+  "aud": "agreeoneat-api",
+  "realm_access": {
+    "roles": ["USER"]
+  },
+  "iat": 1700000000,
+  "exp": 1700001200
+}
+```
+
+`iat` i `exp` są znacznikami czasu Unix. Różnica między nimi wynosi 1200 sekund.
+
+## Hasła
+
+Wersjonowana polityka ma dokładną postać:
+
+```text
+hashAlgorithm(argon2) and length(12) and notUsername(undefined) and notEmail(undefined)
+```
+
+Oznacza to:
+
+- haszowanie hasła algorytmem Argon2;
+- co najmniej 12 znaków;
+- zakaz użycia username jako hasła;
+- zakaz użycia adresu e-mail jako hasła;
+- brak wymuszonego okresowego wygasania hasła.
+
+Argon2 przechowuje osolony hash z parametrami kosztu, a nie odwracalną postać hasła. Parametry kosztu nie są przypięte w realm JSON i pochodzą z domyślnych ustawień używanej wersji Keycloak.
+
+W obecnej konfiguracji nie działa wysyłanie wiadomości SMTP, weryfikacja adresu e-mail, reset hasła przez e-mail ani ochrona brute-force. Jest to konfiguracja lokalnego środowiska deweloperskiego.
+
+## Test konfiguracji w Postmanie
+
+W kolekcji Postmana ustaw `Authorization` na `OAuth 2.0`, wyłącz `Share Token` i skonfiguruj:
 
 | Pole Postmana | Wartość |
 | --- | --- |
@@ -84,102 +230,15 @@ W kolekcji Postmana ustaw `Authorization` na `OAuth 2.0`, wyłącz `Share Token`
 | Scope | `openid` |
 | Client Authentication | `Send client credentials in body` |
 
-Zaznacz `Authorize using browser` i kliknij `Get new access token`. Na stronie Keycloak zarejestruj użytkownika testowego albo zaloguj istniejącego. Jeśli przeglądarka zapyta o otwarcie Postmana, zaakceptuj; może być również konieczne zezwolenie na wyskakujące okna dla `oauth.pstmn.io`. Następnie wybierz `Proceed` i `Use Token`.
+Zaznacz `Authorize using browser`, wybierz `Get new access token`, a po zalogowaniu lub rejestracji użyj `Proceed` i `Use Token`.
 
-Poprawność tokenu można sprawdzić żądaniem `GET`:
+Token można sprawdzić żądaniem:
 
-```text
-http://localhost:8081/realms/agreeoneat/protocol/openid-connect/userinfo
+```http
+GET http://localhost:8081/realms/agreeoneat/protocol/openid-connect/userinfo
+Authorization: Bearer <access_token>
 ```
 
-Żądanie ma używać odziedziczonej autoryzacji kolekcji albo nagłówka `Authorization: Bearer <access-token>`. Oczekiwany wynik to `200 OK` i co najmniej claim `sub`. Access tokenów, refresh tokenów i haseł nie należy zapisywać w kolekcji, synchronizować ani umieszczać na zrzutach ekranu.
+Oczekiwany wynik to `200 OK` i co najmniej claim `sub`. Po zmianie client scope’ów lub mapperów trzeba pobrać nowy token, ponieważ już wystawiony JWT nie zmienia swojej zawartości.
 
-Po uruchomieniu całego stosu ten sam access token można wysłać przez API Gateway do roboczego endpointu `user-service`:
-
-```text
-GET http://localhost:8080/api/users/me
-```
-
-Endpoint wymaga poprawnego access tokenu, ale nie sprawdza obecnie żadnej roli. Spring Security weryfikuje podpis `RS256`, issuer, czas ważności oraz audience `agreeoneat-api`, a odpowiedź pokazuje wybrane dane użytkownika i tokenu, między innymi `subject`, `clientId`, `audience`, `roles`, `algorithm` i `tokenLifetimeSeconds`. Brak tokenu albo token niepoprawny zwraca `401 Unauthorized`.
-
-Po zmianie przypisanych client scope’ów trzeba w Postmanie pobrać nowy token przez `Get new access token` i `Use Token`. Już wystawiony JWT jest niezmienny, więc nie otrzyma nowych claimów po samej zmianie konfiguracji Keycloak.
-
-## Tokeny i sesje
-
-| Ustawienie | Wartość |
-| --- | --- |
-| Algorytm podpisu JWT | `RS256` |
-| Ważność access tokenu | 20 minut |
-| SSO Session Idle | 7 dni |
-| SSO Session Max | 30 dni |
-| Unieważnianie i rotacja refresh tokenów | włączone |
-| Refresh Token Max Reuse | `0` |
-| Offline access | nieprzypisany do klienta mobilnego |
-
-Wygaśnięcie access tokenu nie wylogowuje użytkownika. Dopóki sesja SSO jest ważna, aplikacja używa refresh tokenu do uzyskania nowego access tokenu. Rotacja zwraca nowy refresh token i unieważnia poprzedni, dlatego aplikacja musi atomowo zastąpić zapisany token po każdym odświeżeniu.
-
-Po siedmiu dniach bezczynności sesja SSO wygasa. Nawet aktywna sesja kończy się po trzydziestu dniach i wymaga ponownego interaktywnego logowania. Bezpieczne przechowywanie tokenów w aplikacji mobilnej jest osobnym zadaniem.
-
-### Przeznaczenie tokenów
-
-- **Access token** autoryzuje żądania do API AgreeOnEat.
-- **ID token** opisuje rezultat logowania dla aplikacji mobilnej. Nie może służyć do autoryzacji żądań API.
-- **Refresh token** jest wysyłany wyłącznie do endpointu tokenów Keycloak w celu uzyskania nowego zestawu tokenów.
-
-Przykładowy payload access tokenu zawiera:
-
-```json
-{
-  "iss": "http://localhost:8081/realms/agreeoneat",
-  "sub": "stabilny-identyfikator-uzytkownika-keycloak",
-  "azp": "agreeoneat-mobile",
-  "aud": "agreeoneat-api",
-  "realm_access": {
-    "roles": ["USER"]
-  },
-  "iat": 1700000000,
-  "exp": 1700001200
-}
-```
-
-Rzeczywiste `iat` i `exp` są znacznikami czasu Unix; przykład pokazuje oczekiwane claimy i różnicę 1200 sekund. API musi sprawdzać podpis, issuer, czas ważności oraz obecność `agreeoneat-api` w `aud`.
-
-## Użytkownicy i hasła
-
-Użytkownicy rejestrują się i logują adresem e-mail. E-mail nie jest stabilnym identyfikatorem backendowym: usługi identyfikują użytkownika przez claim `sub` z JWT. Nazwa wyświetlana i pozostałe dane profilu aplikacyjnego należą do `user-service`.
-
-| Ustawienie | Wartość |
-| --- | --- |
-| Samodzielna rejestracja | włączona |
-| Email as username | włączone |
-| Login with email | włączone |
-| Duplicate emails | wyłączone, czyli duplikaty są zabronione |
-| Weryfikacja e-maila | wyłączona lokalnie |
-| Reset hasła przez e-mail | wyłączony lokalnie |
-| Remember Me | wyłączone |
-
-Keycloak haszuje hasła za pomocą Argon2 z rekomendowanymi parametrami domyślnymi. Polityka wymaga co najmniej 12 znaków i odrzuca hasło równe nazwie użytkownika lub adresowi e-mail. Wygasanie haseł jest wyłączone.
-
-Przed wdrożeniem produkcyjnym należy skonfigurować SMTP, weryfikację e-maila i dostarczanie wiadomości resetujących hasło. Bez weryfikacji e-maila lokalna konfiguracja rejestracji nie jest gotowa do użycia produkcyjnego.
-
-## Role i autoryzacja aplikacyjna
-
-Każdy nowy użytkownik otrzymuje domyślną realm role `USER`. W przyszłym Spring Security Resource Server claim Keycloak zostanie zmapowany następująco:
-
-```text
-realm_access.roles.USER -> ROLE_USER
-```
-
-Klient `agreeoneat-mobile` ma wyłączone `Full Scope Allowed` i jawne mapowanie wyłącznie roli `USER`. Dzięki temu techniczne role Keycloak, takie jak `offline_access`, `uma_authorization` i `default-roles-agreeoneat`, nie są umieszczane w access tokenie przeznaczonym dla API AgreeOnEat.
-
-Pozwoli to używać zabezpieczeń metod, np. `@PreAuthorize("hasRole('USER')")`. Backend powinien pobierać stabilny identyfikator użytkownika przez `Jwt#getSubject()`.
-
-Przyszły panel administracyjny powinien otrzymać osobnego klienta OIDC, np. `agreeoneat-admin-web`, oraz osobną rolę aplikacyjną, np. `APP_ADMIN`. Administrator aplikacji nie może automatycznie otrzymywać uprawnień administracyjnych Keycloak.
-
-Role gospodarstwa, takie jak właściciel, administrator lub członek, są kontekstowe: jedna osoba może mieć inną rolę w każdym gospodarstwie. Role te należą do `household-service`, a nie do globalnych realm roles Keycloak.
-
-## Odtwarzalny import realmu
-
-Docker Compose montuje `keycloak/realm-agreeoneat.json` w trybie tylko do odczytu do `/opt/keycloak/data/import/` i uruchamia Keycloak z `start-dev --import-realm`. Import tworzy realm tylko wtedy, gdy jeszcze nie istnieje. Zmiany wykonane w Admin Console są zapisane w PostgreSQL i nie aktualizują automatycznie JSON-a.
-
-Końcowy test czystego odtworzenia celowo usunie lokalne wolumeny przed ponownym uruchomieniem Keycloak. Operacja usuwa wszystkich lokalnych użytkowników i zawartość bazy Keycloak. Prawdziwi i testowi użytkownicy, hasła, hashe haseł, dane administratora, tokeny, sekrety klientów oraz prywatne klucze nie mogą znaleźć się w wersjonowanym pliku realmu.
+Access tokenów, refresh tokenów i haseł nie należy zapisywać w synchronizowanej kolekcji Postmana ani umieszczać na zrzutach ekranu.

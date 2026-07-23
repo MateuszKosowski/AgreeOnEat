@@ -1,6 +1,6 @@
 # AgreeOnEat
 
-AgreeOnEat helps household members choose meals together. The repository currently contains a runnable microservices skeleton: configuration, service discovery, an API gateway, Keycloak, and `Hello` endpoints.
+AgreeOnEat helps household members choose meals together. The repository currently contains a runnable microservices skeleton: configuration, service discovery, an API gateway, Keycloak, and business services protected as OAuth2 Resource Servers.
 
 ## Architecture
 
@@ -9,12 +9,17 @@ AgreeOnEat helps household members choose meals together. The repository current
 | `config-server` | Loads service configuration from the separate Git repository [AgreeOnEat-Config](https://github.com/MateuszKosowski/AgreeOnEat-Config). |
 | `discovery-server` | Eureka service registry. |
 | `api-gateway` | The single public API entry point; routes requests to services through Eureka. |
-| `user-service` | Future user profile management: name, allergens, disliked ingredients, and settings. Accounts, passwords, and tokens belong to Keycloak. |
-| `household-service` | Future households/rooms, invitations, roles, and memberships. |
-| `recipe-service` | Future recipe catalogue, ingredients, allergens, nutrition, cost, and preparation time. |
-| `meal-planning-service` | Future meal-selection sessions, swipes, matches, elimination, and weekly planning. |
-| `keycloak` | Registration, login, JWT issuance, and future Google OAuth. |
+| `user-service` | User-related API boundary. Accounts, passwords, and token issuance belong to Keycloak. |
+| `household-service` | Service boundary for households, invitations, roles, and memberships. |
+| `recipe-service` | Service boundary for recipes, ingredients, allergens, nutrition, cost, and preparation time. |
+| `meal-planning-service` | Service boundary for meal selection, matches, elimination, and weekly planning. |
+| `keycloak` | Registration, login, session management, and JWT issuance. |
 | `keycloak-db` | PostgreSQL database used only by Keycloak. |
+
+Security documentation:
+
+- [Current authentication and authorization flow](docs/security-flow.md)
+- [Reproducible Keycloak configuration and local Postman test](docs/security-keycloak.md)
 
 ## Requirements
 
