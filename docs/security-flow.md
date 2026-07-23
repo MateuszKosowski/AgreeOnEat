@@ -831,3 +831,72 @@ hasAuthority("SCOPE_recipes.read")
 ```
 
 `hasRole("USER")` automatycznie szuka authority `ROLE_USER`, natomiast dla scope’u podaje się pełną nazwę `SCOPE_...`.
+
+### 27. Autoryzacja ścieżki i reguł domenowych w mikroserwisie
+
+Po utworzeniu uwierzytelnienia `user-service` podejmuje ostateczną decyzję, czy żądanie może dotrzeć do kontrolera i wykonać daną operację. Walidacja JWT z kroku 25 potwierdziła, kim jest wywołujący, natomiast autoryzacja odpowiada na pytanie, co wolno mu zrobić.
+
+Ostateczny dostęp można przedstawić jako:
+
+```text
+poprawny access token
+AND reguła ścieżki
+AND wymagane role lub scope’y, jeżeli zostały zdefiniowane
+AND reguły dotyczące konkretnego zasobu
+= zgoda na wykonanie operacji
+```
+
+#### Dlaczego `/api/users/me` nie potrzebuje dodatkowej permisji?
+
+Kontroler udostępnia endpoint:
+
+```http
+GET /api/users/me
+```
+
+Nie przyjmuje on identyfikatora użytkownika w adresie ani body. Korzysta bezpośrednio ze zweryfikowanego JWT:
+
+```java
+CurrentUserResponse currentUser(@AuthenticationPrincipal Jwt jwt)
+```
+
+Identyfikator bieżącego użytkownika pochodzi z `jwt.getSubject()`, czyli z podpisanego claima `sub`. Użytkownik nie może podstawić w żądaniu innego `userId` i poprosić o dane cudzej osoby. Endpoint zwraca informacje o podmiocie, którego token został właśnie zweryfikowany, dlatego na obecnym etapie wystarcza `authenticated()`.
+
+`/api/users/me` jest na razie endpointem diagnostycznym i odczytuje dane bezpośrednio z tokenu. Nie pobiera profilu użytkownika z bazy i nie wykonuje operacji na zasobie należącym do innej osoby.
+
+### 28. Zwrócenie odpowiedzi biznesowej do API Gateway
+
+Jeżeli wszystkie kontrole bezpieczeństwa zakończyły się powodzeniem, mikroserwis wykonuje właściwą operację biznesową. Może w tym celu skorzystać ze swojej bazy danych oraz pozostałych elementów własnej logiki domenowej.
+
+Po zakończeniu operacji mikroserwis tworzy standardową odpowiedź HTTP zawierającą:
+
+- kod statusu;
+- wymagane nagłówki;
+- opcjonalne body, najczęściej w formacie JSON.
+
+Odpowiedź wraca tym samym wewnętrznym połączeniem do API Gateway. Mikroserwis nie wysyła jej bezpośrednio do frontendu i nie musi znać jego publicznego adresu.
+
+Access token służył do uwierzytelnienia żądania i nie powinien być kopiowany do body ani nagłówków odpowiedzi. Mikroserwis zwraca wyłącznie dane, do których dostęp został zaakceptowany w poprzednim kroku.
+
+Jeżeli operacja zakończyła się błędem, w ten sam sposób zwracany jest odpowiedni status `4xx` albo `5xx` wraz z bezpiecznym opisem problemu. Odpowiedź nie powinna ujawniać stack trace, sekretów ani wewnętrznych szczegółów infrastruktury.
+
+### 29. Przekazanie odpowiedzi z API Gateway do frontendu
+
+API Gateway odbiera odpowiedź mikroserwisu i przekazuje ją przez publiczny punkt wejścia do frontendu. W standardowym przypadku zachowuje kod statusu, nagłówki oraz biznesowe body odpowiedzi.
+
+Frontend komunikuje się wyłącznie z adresem Gateway. Nie otrzymuje wewnętrznego adresu ani portu instancji mikroserwisu, która obsłużyła żądanie. Dzięki temu routing i ewentualne skalowanie usług pozostają szczegółem infrastruktury backendu.
+
+Jeżeli klientem jest przyszły frontend przeglądarkowy, Gateway dodaje nagłówki CORS zgodnie z konfiguracją dozwolonych originów, obecnie `http://localhost:3000`. Natywna aplikacja mobilna nie korzysta z mechanizmu CORS.
+
+Frontend interpretuje otrzymany status i body:
+
+- odpowiedź `2xx` oznacza poprawne wykonanie operacji;
+- `401 Unauthorized` oznacza brak poprawnego uwierzytelnienia, na przykład wygaśnięcie access tokenu;
+- `403 Forbidden` oznacza, że tożsamość została rozpoznana, ale nie ma zgody na daną operację;
+- pozostałe błędy są obsługiwane zgodnie z ich znaczeniem biznesowym lub technicznym.
+
+Docelowo po otrzymaniu `401` biblioteka OIDC może spróbować użyć refresh tokenu do uzyskania nowego access tokenu i powtórzyć żądanie. Odświeżanie tokenu nie rozwiąże błędu `403`, ponieważ ten oznacza brak wymaganych uprawnień albo niespełnienie reguły domenowej.
+
+Gateway nie zwraca frontendowi access tokenu przekazanego w żądaniu i nie wystawia nowego tokenu. Odpowiedź zawiera wyłącznie wynik wywołania API. W środowisku produkcyjnym komunikacja frontend ↔ Gateway musi odbywać się przez HTTPS.
+
+Na tym kończy się przepływ pojedynczego żądania od frontendu do mikroserwisu biznesowego i z powrotem.
