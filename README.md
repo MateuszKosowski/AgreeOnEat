@@ -9,6 +9,7 @@ AgreeOnEat helps household members choose meals together. The repository current
 | `config-server` | Loads service configuration from the separate Git repository [AgreeOnEat-Config](https://github.com/MateuszKosowski/AgreeOnEat-Config). |
 | `discovery-server` | Eureka service registry. |
 | `api-gateway` | The single public API entry point; routes requests to services through Eureka. |
+| `test-web-app` | Minimal browser client for testing registration, login, and `GET /api/users/me`. |
 | `user-service` | User-related API boundary. Accounts, passwords, and token issuance belong to Keycloak. |
 | `household-service` | Service boundary for households, invitations, roles, and memberships. |
 | `recipe-service` | Service boundary for recipes, ingredients, allergens, nutrition, cost, and preparation time. |
@@ -75,10 +76,13 @@ If a service starts before Config Server is ready, Docker Compose restarts it. A
 | --- | --- |
 | [http://localhost:8080](http://localhost:8080) | API Gateway |
 | [http://localhost:8081](http://localhost:8081) | Keycloak admin console |
+| [http://localhost:3000](http://localhost:3000) | Test web app |
 | [http://localhost:8761](http://localhost:8761) | Eureka dashboard |
 | [http://localhost:8888](http://localhost:8888) | Config Server |
 
-The Keycloak admin console uses `KEYCLOAK_ADMIN` and `KEYCLOAK_ADMIN_PASSWORD` from `.env`. The `agreeoneat` realm and `agreeoneat-mobile` client are imported on the first start.
+The Keycloak admin console uses `KEYCLOAK_ADMIN` and `KEYCLOAK_ADMIN_PASSWORD` from `.env`. The `agreeoneat` realm and its `agreeoneat-mobile` and `agreeoneat-web-test` clients are imported on the first start.
+
+Open `http://localhost:3000` to test registration or login. After a successful redirect from Keycloak, the page calls `GET /api/users/me` through API Gateway and displays its JSON response. Detailed instructions are in [`test-web-app/README.md`](test-web-app/README.md).
 
 ## Contribution workflow
 

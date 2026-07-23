@@ -56,6 +56,23 @@ services:
       - "8080:8080"
     restart: on-failure
 
+  test-web-app:
+    build:
+      context: ./test-web-app
+    image: agreeoneat/test-web-app:local
+    container_name: agreeoneat-test-web-app
+    environment:
+      VITE_KEYCLOAK_URL: ${TEST_WEB_KEYCLOAK_URL:-http://localhost:8081}
+      VITE_KEYCLOAK_REALM: ${TEST_WEB_KEYCLOAK_REALM:-agreeoneat}
+      VITE_KEYCLOAK_CLIENT_ID: ${TEST_WEB_KEYCLOAK_CLIENT_ID:-agreeoneat-web-test}
+      VITE_API_GATEWAY_URL: ${TEST_WEB_API_GATEWAY_URL:-http://localhost:8080}
+    depends_on:
+      - api-gateway
+      - keycloak
+    ports:
+      - "3000:3000"
+    restart: on-failure
+
   user-service:
     build:
       context: .

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Lokalny klient testowy logowania AgreeOnEat" />
+    <title>AgreeOnEat — test logowania</title>
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="card" aria-labelledby="page-title">
+        <div class="brand">AgreeOnEat</div>
+        <h1 id="page-title">Test przepływu użytkownika</h1>
+        <p class="intro">
+          Logowanie i rejestracja odbywają się w Keycloak. Po poprawnym powrocie
+          aplikacja automatycznie wywoła <code>GET /api/users/me</code> przez API Gateway.
+        </p>
+
+        <div id="status" class="status status--loading" role="status">
+          Inicjalizacja klienta OIDC…
+        </div>
+
+        <div id="anonymous-actions" class="actions" hidden>
+          <button id="login-button" class="button button--primary" type="button">
+            Zaloguj
+          </button>
+          <button id="register-button" class="button button--secondary" type="button">
+            Zarejestruj
+          </button>
+        </div>
+
+        <section id="authenticated-content" hidden>
+          <div class="authenticated-header">
+            <div>
+              <p class="eyebrow">Odpowiedź backendu</p>
+              <h2>GET /api/users/me</h2>
+            </div>
+            <button id="logout-button" class="button button--ghost" type="button">
+              Wyloguj
+            </button>
+          </div>
+
+          <pre id="user-response" class="response" aria-live="polite"></pre>
+        </section>
+
+        <div id="error" class="error" role="alert" hidden></div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

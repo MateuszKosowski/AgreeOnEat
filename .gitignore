@@ -42,6 +42,10 @@ application-secret.yaml
 *.swo
 *~
 
+# Local test web app
+/test-web-app/node_modules/
+/test-web-app/dist/
+
 # Operating system
 .DS_Store
 Thumbs.db

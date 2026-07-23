@@ -36,6 +36,12 @@
       "roles": [
         "USER"
       ]
+    },
+    {
+      "client": "agreeoneat-web-test",
+      "roles": [
+        "USER"
+      ]
     }
   ],
   "clientScopes": [
@@ -265,6 +271,40 @@
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "com.agreeoneat://oauth/callback",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false"
+      }
+    },
+    {
+      "clientId": "agreeoneat-web-test",
+      "name": "AgreeOnEat local web test",
+      "description": "Public OpenID Connect client for the local browser test application.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "fullScopeAllowed": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email",
+        "roles",
+        "agreeoneat-api"
+      ],
+      "optionalClientScopes": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/",
         "oauth2.device.authorization.grant.enabled": "false",
         "oidc.ciba.grant.enabled": "false"
       }
