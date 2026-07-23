@@ -28,6 +28,130 @@ OAuth 2.0 jest mechanizmem autoryzacji — odpowiada przede wszystkim na pytanie
 
 OpenID Connect jest warstwą logowania i tożsamości zbudowaną na OAuth 2.0. Odpowiada dodatkowo na pytanie: „Kim jest użytkownik?”. Dodaje między innymi ID token (opisuje wynik logowania i tożsamość użytkownika; w przeciwieństwie do access tokenu nie służy do wywoływania API), standardowe informacje o użytkowniku oraz parametr `nonce` (jednorazową losową wartość wiążącą ID token z konkretną próbą logowania).
 
+### Scope, rola i permisja
+
+Scope nie zastępuje modelu `rola → permisje`. Jest dodatkowym mechanizmem OAuth określającym zakres przyznany konkretnemu access tokenowi.
+
+#### Znany model: rola jako zbiór permisji
+
+Model powszechnie stosowany jest klasycznym RBAC (Role-Based Access Control):
+
+```text
+użytkownik
+    ↓ posiada
+rola
+    ↓ grupuje
+permisje
+```
+
+Przykładowo:
+
+```text
+ADMIN
+├── READ_FLOW
+├── EDIT_FLOW
+├── DELETE_FLOW
+├── READ_CONNECTOR
+└── EDIT_CONNECTOR
+
+READER
+├── READ_FLOW
+└── READ_CONNECTOR
+```
+
+Permisja jest pojedynczym uprawnieniem do wykonania operacji, na przykład `EDIT_FLOW`. Rola jest wygodną nazwą grupującą wiele permisji. Użytkownik otrzymuje rolę, a aplikacja na jej podstawie wyznacza jego permisje.
+
+#### Czym w takim razie jest scope?
+
+Scope należy do innej warstwy. Nie opisuje całego konta użytkownika, tylko zakres przyznany jednemu, konkretnemu access tokenowi:
+
+```text
+access token
+└── scope: operacje lub dane dostępne przy użyciu tego tokenu
+```
+
+Najprościej można traktować scope jako ograniczenie możliwości konkretnego tokenu.
+
+Przykład: użytkownik z rolą `ADMIN` posiada w systemie wszystkie permisje, ale aplikacja otrzymała token tylko ze scopem `READ_FLOW`. Jeżeli API wymaga tego scope’u, tym konkretnym tokenem można odczytywać flow, ale nie można go edytować ani usuwać. Wydanie nowego tokenu z innym zakresem nie zmienia roli użytkownika w bazie.
+
+Gdy system jednocześnie używa ról, permisji i scope’ów, ostateczny dostęp można uprościć do:
+
+```text
+uprawnienia wynikające z roli
+∩ zakres przyznany tokenowi
+∩ reguły dotyczące konkretnego zasobu
+= dozwolone operacje
+```
+
+Scope nie jest więc kolejną tabelą pomiędzy rolą a permisją. Jest ograniczeniem zapisanym w tokenie i sprawdzanym przez API tylko wtedy, gdy endpoint jawnie go wymaga.
+
+#### Dlaczego scope ma czasem nazwę `email` albo `profile`?
+
+W OAuth i OIDC słowo scope oznacza ogólnie zakres dostępu, a nie wyłącznie operację CRUD.
+
+Scope może dotyczyć:
+
+1. danych, które aplikacja może otrzymać;
+2. operacji, które token może wykonać.
+
+Przykłady zakresów danych OIDC:
+
+| Scope | Co rzeczywiście oznacza? |
+| --- | --- |
+| `openid` | Aplikacja rozpoczyna logowanie OIDC i chce otrzymać ID token. |
+| `profile` | Aplikacja może otrzymać podstawowe dane profilu, na przykład imię i nazwisko. |
+| `email` | Aplikacja może otrzymać `email` i `email_verified`. |
+
+`email` nie oznacza permisji `EDIT_EMAIL`. Oznacza wyłącznie zgodę na przekazanie aplikacji informacji o e-mailu użytkownika.
+
+Przyszłe scope’y API mogą natomiast przypominać znane permisje:
+
+```text
+recipes.read
+recipes.write
+households.read
+```
+
+W takim zastosowaniu scope `recipes.read` rzeczywiście działa podobnie do permisji `READ_RECIPE`. Najważniejsza różnica polega na miejscu przypisania:
+
+| Mechanizm | Gdzie jest przypisany? | Jak długo obowiązuje? |
+| --- | --- | --- |
+| Permisja wynikająca z roli | Do konta użytkownika przez rolę, zwykle w bazie lub systemie IAM. | Dopóki nie zmieni się rola albo jej permisje. |
+| Scope | Do konkretnego access tokenu. | Tylko do wygaśnięcia tego tokenu. |
+
+
+#### Client Scope w Keycloak to jeszcze inne pojęcie
+
+Keycloak używa nazwy „Client Scope” również dla pakietu konfiguracji określającego zawartość tokenu. Taki Client Scope może zawierać mappery dodające claimy i nie musi być biznesową permisją.
+
+W AgreeOnEat:
+
+| Client Scope Keycloak | Zadanie |
+| --- | --- |
+| `profile` | Dodaje dane profilowe użytkownika. |
+| `email` | Dodaje dane związane z e-mailem. |
+| `roles` | Dodaje `realm_access.roles` do tokenu. Nie jest permisją o nazwie `roles`. |
+| `agreeoneat-api` | Dodaje `aud=agreeoneat-api`. Nie daje automatycznie dostępu do wszystkich endpointów. |
+
+Client Scope w Keycloak jest więc przede wszystkim mechanizmem konfiguracji tokenu. Tylko niektóre Client Scopes reprezentują właściwe zakresy operacji.
+
+#### Jak widzi to Spring Security?
+
+Po zweryfikowaniu JWT Spring zamienia role i scope’y na jedną techniczną listę `GrantedAuthority`:
+
+```text
+rola USER          → ROLE_USER
+scope recipes.read → SCOPE_recipes.read
+```
+
+Endpoint wybiera, czego chce wymagać:
+
+```java
+hasRole("ADMIN")
+hasAuthority("SCOPE_recipes.read")
+```
+
+`GrantedAuthority` nie jest nowym modelem permisji. Jest wspólnym formatem Spring Security, w którym może zostać zapisana zarówno rola, jak i scope.
 
 ## Przepływ frontend → mikroserwis biznesowy
 
@@ -523,3 +647,187 @@ Mikroserwis otrzymuje oryginalny, kryptograficznie podpisany access token Keyclo
 Ponowna weryfikacja w mikroserwisie jest celowa. Gateway chroni wejście do systemu, ale mikroserwis nie powinien zakładać, że każde żądanie z sieci wewnętrznej na pewno przeszło przez Gateway. Żądanie może pochodzić z innego kontenera, błędnie skonfigurowanej trasy albo w przyszłości z komunikacji S2S. Mikroserwis stanowi więc drugą granicę bezpieczeństwa i sam sprawdza poświadczenie, na podstawie którego wykonuje logikę biznesową.
 
 W aktualnym Docker Compose port `user-service` nie jest publikowany na komputerze gospodarza, podczas gdy port `8080` API Gateway jest publicznie mapowany. Ogranicza to możliwość ominięcia Gateway z zewnątrz, ale inne elementy wewnętrznej sieci kontenerów nadal mogą dotrzeć do mikroserwisu. Ochrona sieciowa i weryfikacja JWT uzupełniają się, zamiast wzajemnie zastępować.
+
+### 23. Pobranie kluczy publicznych Keycloak przez `user-service`
+
+Po odebraniu żądania Spring Security w `user-service` odczytuje z nagłówka access tokenu identyfikator `kid`. Podobnie jak wcześniej Gateway, mikroserwis potrzebuje odpowiadającego mu klucza publicznego, zanim będzie mógł zaufać podpisowi JWT.
+
+Gateway i `user-service` są osobnymi procesami i mają osobne pamięci. Klucz pobrany wcześniej przez Gateway nie jest automatycznie przekazywany do mikroserwisu. Każda instancja usługi samodzielnie utrzymuje własny cache kluczy i wykonuje własną weryfikację kryptograficzną.
+
+Jeżeli `user-service` nie ma w pamięci klucza odpowiadającego `kid`, na przykład obsługuje pierwszy token po uruchomieniu albo Keycloak wykonał rotację kluczy, wysyła żądanie:
+
+```http
+GET /realms/agreeoneat/protocol/openid-connect/certs
+```
+
+Adres pochodzi z tej samej właściwości Resource Server co w Gateway:
+
+```yaml
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/agreeoneat/protocol/openid-connect/certs}
+```
+
+W zależności od miejsca uruchomienia używany jest odpowiedni adres:
+
+| Środowisko | Adres JWKS używany przez `user-service` |
+| --- | --- |
+| Usługa uruchomiona lokalnie poza Dockerem | `http://localhost:8081/realms/agreeoneat/protocol/openid-connect/certs` |
+| Usługa uruchomiona w Dockerze | `http://keycloak:8080/realms/agreeoneat/protocol/openid-connect/certs` |
+
+`user-service` nie wysyła do Keycloak access tokenu użytkownika z pytaniem, czy jest on poprawny. Nie korzysta tutaj z endpointu introspekcji. Pobiera jedynie publiczne klucze i później samodzielnie sprawdzi token lokalnie. Dzięki temu Keycloak nie musi uczestniczyć w obsłudze każdego żądania biznesowego.
+
+Krok jest warunkowy. Jeśli pasujący klucz znajduje się już w cache danej instancji `user-service`, kroki 23 i 24 zostają pominięte. Przy wielu instancjach każda z nich posiada własny cache i w razie potrzeby pobiera JWKS niezależnie.
+
+### 24. Zwrócenie zestawu JWKS do `user-service`
+
+Keycloak odpowiada do `user-service` zestawem publicznych kluczy realmu `agreeoneat`. Jest to ten sam dokument JWKS, który wcześniej mógł pobrać API Gateway:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+```
+
+```json
+{
+  "keys": [
+    {
+      "kid": "<identyfikator_klucza>",
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "n": "<modulus_RSA>",
+      "e": "AQAB"
+    }
+  ]
+}
+```
+
+Spring Security porównuje `kid` z nagłówka access tokenu z identyfikatorami kluczy znajdujących się w tablicy `keys`. Następnie wybiera pasujący klucz RSA przeznaczony do weryfikowania podpisów i tworzy z jego publicznych parametrów `n` oraz `e` obiekt klucza publicznego.
+
+JWKS może zawierać kilka kluczy, ponieważ Keycloak musi obsługiwać ich rotację. Nowe tokeny mogą być podpisywane nowym kluczem, podczas gdy starszy klucz publiczny pozostaje jeszcze dostępny do czasu wygaśnięcia wcześniej wydanych tokenów. Pole `kid` pozwala wybrać właściwy klucz bez prób sprawdzania podpisu każdym z nich.
+
+Wybrany zestaw kluczy zostaje zachowany w cache konkretnej instancji `user-service`. Nie jest współdzielony z Gateway ani z innymi instancjami mikroserwisu.
+
+Odpowiedź nie zawiera prywatnego klucza Keycloak. Posiadanie JWKS pozwala jedynie weryfikować istniejące podpisy, a nie wystawiać nowe, poprawnie podpisane tokeny.
+
+Jeżeli po odświeżeniu JWKS nadal nie istnieje klucz odpowiadający `kid` tokenu albo zestawu nie uda się pobrać, `user-service` nie może bezpiecznie potwierdzić podpisu. Token musi wtedy zostać odrzucony, a żądanie nie może dotrzeć do kontrolera.
+
+### 25. Ponowna weryfikacja access tokenu przez `user-service`
+
+Filtry Spring Security przechwytują żądanie, zanim trafi ono do kontrolera `user-service`. Mikroserwis traktuje otrzymany JWT jako niezaufany i samodzielnie wykonuje te same podstawowe kontrole kryptograficzne oraz czasowe co API Gateway.
+
+Konfiguracja Resource Server w `user-service` zawiera:
+
+```yaml
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/agreeoneat}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/agreeoneat/protocol/openid-connect/certs}
+          audiences: ${KEYCLOAK_AUDIENCE:agreeoneat-api}
+          jws-algorithms: RS256
+```
+
+Na jej podstawie Spring Security sprawdza:
+
+| Kontrola | Wymaganie |
+| --- | --- |
+| Podpis | Musi pasować do `header.payload` tokenu i publicznego klucza RSA wybranego na podstawie `kid`. |
+| `alg` | Dozwolony jest wyłącznie `RS256`. |
+| `iss` | Musi dokładnie odpowiadać skonfigurowanemu adresowi realmu `agreeoneat`. |
+| `aud` | Musi zawierać `agreeoneat-api`, ponieważ token ma być przeznaczony dla backendu AgreeOnEat. |
+| `exp` | Token nie może być przeterminowany. |
+
+Weryfikacja podpisu odbywa się lokalnie przy użyciu klucza publicznego. `user-service` nie przesyła tokenu do Keycloak ani do Gateway i nie potrzebuje klucza prywatnego. Jeśli odpowiedni klucz jest już w cache, sprawdzenie nie wymaga żadnego dodatkowego połączenia sieciowego.
+
+Jeżeli którakolwiek kontrola zakończy się niepowodzeniem, Spring Security nie uruchamia kontrolera. `RestSecurityErrorHandler` zwraca:
+
+```http
+HTTP/1.1 401 Unauthorized
+Content-Type: application/problem+json
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unauthorized",
+  "status": 401,
+  "detail": "A valid Bearer access token is required."
+}
+```
+
+Jeżeli token przejdzie wszystkie kontrole, Spring Security tworzy dla bieżącego żądania obiekt uwierzytelnienia zawierający zweryfikowany JWT. `user-service` działa bezstanowo, więc nie tworzy własnej sesji i powtarza walidację przy każdym żądaniu.
+
+Lokalna walidacja ma również ważną konsekwencję: mikroserwis ocenia podpis i claimy zapisane w tokenie, ale nie pyta Keycloak o aktualny stan konta przy każdym wywołaniu. Jeżeli użytkownik wyloguje się albo administrator wyłączy konto, wcześniej wydany access token może pozostać akceptowany do czasu swojego wygaśnięcia — w AgreeOnEat maksymalnie przez 20 minut. Refresh token nie pozwoli wtedy bez końca przedłużać dostępu, ale krótki czas życia access tokenu ogranicza okno użycia już wydanego JWT.
+
+Poprawna walidacja oznacza dopiero, że token jest autentyczny, przeznaczony dla tego backendu i nadal ważny. Scope’y oraz role zawarte w tokenie zostaną przekształcone na uprawnienia Spring Security w kroku 26.
+
+### 26. Mapowanie scope’ów i ról na uprawnienia Spring Security
+
+Po zweryfikowaniu JWT `user-service` odczytuje z niego informacje, które mają reprezentować uprawnienia użytkownika. W tokenie Keycloak są one zapisane jako zwykłe claimy, na przykład:
+
+```json
+{
+  "scope": "openid profile email",
+  "realm_access": {
+    "roles": ["USER"]
+  }
+}
+```
+
+Spring Security nie podejmuje decyzji bezpośrednio na podstawie takiego JSON-a. Najpierw zamienia wartości na obiekty `GrantedAuthority`, czyli ujednolicone nazwy uprawnień wykorzystywane później przez reguły bezpieczeństwa.
+
+#### Mapowanie scope’ów
+
+Standardowy `JwtGrantedAuthoritiesConverter` odczytuje claim `scope` i dodaje do każdej wartości prefiks `SCOPE_`:
+
+```text
+openid  → SCOPE_openid
+profile → SCOPE_profile
+email   → SCOPE_email
+```
+
+Scope opisuje zakres przyznany tokenowi lub klientowi. Nie każdy scope OIDC jest jednak uprawnieniem biznesowym. Przykładowo `profile` i `email` określają przede wszystkim zestawy informacji o użytkowniku.
+
+#### Mapowanie ról Keycloak
+
+Role realmu znajdują się w zagnieżdżonym claimie `realm_access.roles`, którego standardowy converter Springa nie obsługuje. Dlatego `user-service` posiada dwie własne klasy:
+
+1. `KeycloakRealmRolesExtractor` bezpiecznie odczytuje tablicę ról z `realm_access.roles`. Jeżeli claimu nie ma albo ma niewłaściwy format, zwraca pustą listę.
+2. `KeycloakRealmRoleConverter` zamienia każdą odczytaną rolę na `GrantedAuthority` z prefiksem `ROLE_`.
+
+Przykładowe mapowanie wygląda następująco:
+
+```text
+USER       → ROLE_USER
+ADMIN      → ROLE_ADMIN
+ROLE_ADMIN → ROLE_ADMIN
+```
+
+Converter nie dodaje prefiksu drugi raz, jeżeli nazwa roli już zaczyna się od `ROLE_`. Nazwy są rozróżniane pod względem wielkości liter, dlatego role AgreeOnEat zapisujemy w spójnej postaci, na przykład `USER`.
+
+#### Połączenie obu źródeł
+
+Bean `JwtAuthenticationConverter` łączy converter scope’ów i converter ról. Dla przykładowego tokenu wynikiem będzie uwierzytelnienie zawierające między innymi:
+
+```text
+SCOPE_openid
+SCOPE_profile
+SCOPE_email
+ROLE_USER
+```
+
+Dzięki temu dalsze reguły mogą być zapisywane w standardowy sposób Spring Security:
+
+```java
+hasRole("USER")
+hasAuthority("SCOPE_recipes.read")
+```
+
+`hasRole("USER")` automatycznie szuka authority `ROLE_USER`, natomiast dla scope’u podaje się pełną nazwę `SCOPE_...`.
